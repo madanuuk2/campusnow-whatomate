@@ -60,3 +60,6 @@ test-results/
 
 # Docker 
 docker/.env
+
+# Environment variables / secrets
+.env

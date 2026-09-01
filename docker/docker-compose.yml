@@ -1,7 +1,10 @@
 services:
   # Whatomate app
   app:
-    image: shridh0r/whatomate:latest
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    image: campusnow-whatomate:local
     container_name: whatomate_app
     restart: unless-stopped
     ports:
@@ -14,10 +17,10 @@ services:
       redis:
         condition: service_healthy
     env_file:
-      - .env
+      - ../.env
     volumes:
-      - ./uploads:/app/uploads:rw
-      - ./config.toml:/app/config.toml:ro
+      - ../uploads:/app/uploads:rw
+      - ../config.toml:/app/config.toml:ro
     command: ["server", "-migrate", "-config", "/app/config.toml"]
 
   # PostgreSQL database
