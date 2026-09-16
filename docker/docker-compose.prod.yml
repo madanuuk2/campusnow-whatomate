@@ -1,0 +1,89 @@
+# Run from the deployment root with:
+# docker compose --env-file .env -f docker/docker-compose.prod.yml <command>
+# WHATOMATE_IMAGE must be an immutable GHCR image reference, such as a commit-SHA tag.
+services:
+  app:
+    image: ${WHATOMATE_IMAGE:?WHATOMATE_IMAGE must reference an immutable application image}
+    restart: unless-stopped
+    logging:
+      driver: local
+      options:
+        max-size: "10m"
+        max-file: "3"
+    # Reserved for the future reverse proxy; not publicly reachable directly.
+    ports:
+      - "127.0.0.1:8080:8080"
+    networks:
+      - whatomate
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    env_file:
+      - ../.env
+    environment:
+      # Keep the application and PostgreSQL container credentials synchronized
+      # without storing them in config.toml.
+      WHATOMATE_DATABASE__USER: ${POSTGRES_USER:?POSTGRES_USER must be set}
+      WHATOMATE_DATABASE__PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}
+      WHATOMATE_DATABASE__NAME: ${POSTGRES_DB:?POSTGRES_DB must be set}
+    volumes:
+      - ../uploads:/app/uploads:rw
+      - ../config.toml:/app/config.toml:ro
+      - audio-data:/app/audio
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "--show-error", "http://127.0.0.1:8080/ready"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 45s
+    command: ["server", "-migrate", "-config", "/app/config.toml"]
+
+  db:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    logging:
+      driver: local
+      options:
+        max-size: "10m"
+        max-file: "3"
+    networks:
+      - whatomate
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:?POSTGRES_USER must be set}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}
+      POSTGRES_DB: ${POSTGRES_DB:?POSTGRES_DB must be set}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:?POSTGRES_USER must be set} -d ${POSTGRES_DB:?POSTGRES_DB must be set}"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    logging:
+      driver: local
+      options:
+        max-size: "10m"
+        max-file: "3"
+    networks:
+      - whatomate
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    volumes:
+      - redis-data:/data
+
+networks:
+  whatomate:
+
+volumes:
+  postgres-data:
+  redis-data:
+  audio-data:
