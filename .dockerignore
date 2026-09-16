@@ -30,4 +30,7 @@ TESTING.md
 
 .DS_Store
 
-campusnow-assets/
+campusnow-assets/*
+!campusnow-assets/CampuNowFullName.png
+!campusnow-assets/CampusNowLogo.png
+!campusnow-assets/favicon.png
