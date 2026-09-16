@@ -5,8 +5,12 @@ services:
       context: ..
       dockerfile: docker/Dockerfile
     image: campusnow-whatomate:local
-    container_name: whatomate_app
     restart: unless-stopped
+    logging:
+      driver: local
+      options:
+        max-size: "10m"
+        max-file: "3"
     ports:
       - "8080:8080"
     networks:
@@ -21,13 +25,24 @@ services:
     volumes:
       - ../uploads:/app/uploads:rw
       - ../config.toml:/app/config.toml:ro
+      - audio-data:/app/audio
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "--show-error", "http://127.0.0.1:8080/ready"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 45s
     command: ["server", "-migrate", "-config", "/app/config.toml"]
 
   # PostgreSQL database
   db:
     image: postgres:17-alpine
-    container_name: whatomate_db
     restart: unless-stopped
+    logging:
+      driver: local
+      options:
+        max-size: "10m"
+        max-file: "3"
     networks:
       - whatomate
     ports:
@@ -47,8 +62,12 @@ services:
   # Redis
   redis:
     image: redis:7-alpine
-    container_name: whatomate_redis
     restart: unless-stopped
+    logging:
+      driver: local
+      options:
+        max-size: "10m"
+        max-file: "3"
     networks:
       - whatomate
     ports:
@@ -67,3 +86,4 @@ networks:
 volumes:
   postgres-data:
   redis-data:
+  audio-data:
