@@ -58,5 +58,11 @@ audio/
 # Test results
 test-results/
 
+# Local testing notes
+TESTING.md
+
 # Docker 
 docker/.env
+
+# Environment variables / secrets
+.env
