@@ -1,0 +1,84 @@
+name: Deploy production
+
+on:
+  workflow_run:
+    workflows:
+      - Publish CampusNow image
+    types:
+      - completed
+
+permissions:
+  contents: read
+
+concurrency:
+  group: campusnow-whatomate-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    # workflow_run is also emitted for non-push events if the publisher is
+    # changed later. Keep deployment restricted to successful main pushes.
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.head_branch == 'main'
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - name: Deploy immutable image to Lightsail
+        env:
+          PRODUCTION_HOST: ${{ secrets.PRODUCTION_HOST }}
+          PRODUCTION_USER: ${{ secrets.PRODUCTION_USER }}
+          PRODUCTION_SSH_KNOWN_HOSTS: ${{ secrets.PRODUCTION_SSH_KNOWN_HOSTS }}
+          IMAGE_REF: ghcr.io/madanuuk2/campusnow-whatomate:${{ github.event.workflow_run.head_sha }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+
+          install -d -m 700 "$HOME/.ssh"
+          printf '%s\n' "$PRODUCTION_SSH_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
+          chmod 600 "$HOME/.ssh/known_hosts"
+
+          eval "$(ssh-agent -s)"
+          trap 'ssh-agent -k >/dev/null' EXIT
+          ssh-add - <<< "${{ secrets.PRODUCTION_SSH_PRIVATE_KEY }}" >/dev/null
+
+          ssh \
+            -o BatchMode=yes \
+            -o StrictHostKeyChecking=yes \
+            -o UserKnownHostsFile="$HOME/.ssh/known_hosts" \
+            "$PRODUCTION_USER@$PRODUCTION_HOST" \
+            "IMAGE_REF=$IMAGE_REF bash -s" <<'REMOTE'
+          set -Eeuo pipefail
+
+          deployment_dir=/opt/campusnow-whatomate
+          compose_file=docker/docker-compose.prod.yml
+          cd "$deployment_dir"
+
+          test -f .env
+          test -f config.toml
+          test -f "$compose_file"
+          test -d uploads
+          grep -q '^WHATOMATE_IMAGE=' .env
+
+          temporary_env="$(mktemp .env.XXXXXX)"
+          trap 'rm -f "$temporary_env"' EXIT
+          sed "s|^WHATOMATE_IMAGE=.*$|WHATOMATE_IMAGE=$IMAGE_REF|" .env > "$temporary_env"
+          mv "$temporary_env" .env
+          trap - EXIT
+
+          docker compose --env-file .env -f "$compose_file" pull
+          docker compose --env-file .env -f "$compose_file" up -d
+
+          for attempt in $(seq 1 24); do
+            if curl -fsS http://127.0.0.1:8080/health &&
+              curl -fsS http://127.0.0.1:8080/ready; then
+              exit 0
+            fi
+            sleep 5
+          done
+
+          docker compose --env-file .env -f "$compose_file" ps || true
+          docker compose --env-file .env -f "$compose_file" logs --tail=100 app || true
+          exit 1
+          REMOTE

@@ -1,0 +1,64 @@
+# CampusNow production configuration template for wa.campusnow.in.
+# Copy to config.toml on the deployment server. Do not commit config.toml.
+# Runtime secrets are supplied through the protected .env file.
+
+[app]
+name = "CampusNow Whatomate"
+environment = "production"
+debug = false
+
+[server]
+host = "0.0.0.0"
+port = 8080
+read_timeout = 30
+write_timeout = 30
+base_path = ""
+allowed_origins = "https://wa.campusnow.in"
+
+[database]
+# User, password, and database name are injected by docker-compose.prod.yml
+# from the protected POSTGRES_* environment variables.
+host = "db"
+port = 5432
+ssl_mode = "disable"
+max_open_conns = 25
+max_idle_conns = 5
+conn_max_lifetime = 300
+
+[redis]
+host = "redis"
+port = 6379
+db = 0
+tls = false
+
+[jwt]
+# jwt.secret is supplied as WHATOMATE_JWT__SECRET through .env.
+access_expiry_mins = 15
+refresh_expiry_days = 1
+
+[storage]
+type = "local"
+local_path = "./uploads"
+
+[cookie]
+# Host-only cookies are appropriate for this single-host deployment.
+domain = ""
+secure = true
+
+[rate_limit]
+enabled = true
+login_max_attempts = 10
+register_max_attempts = 10
+refresh_max_attempts = 30
+sso_max_attempts = 10
+window_seconds = 60
+# The app is bound to localhost and reached only through the trusted reverse proxy.
+trust_proxy = false
+api_max_requests = 200
+api_window_seconds = 60
+
+# WhatsApp account credentials and messaging settings are configured
+# per organization and stored in PostgreSQL. Do not add them here.
+#
+# Calling, IVR, TURN, UDP, S3, and TTS configuration are intentionally omitted
+# for the first messaging-only deployment.
