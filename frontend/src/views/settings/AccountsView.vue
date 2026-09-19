@@ -130,6 +130,7 @@ function loadFacebookSDK() {
   script.onload = () => {
     window.FB.init({
       appId: whatsappConfig.value!.app_id,
+      fedCM: false,
       cookie: true,
       xfbml: true,
       version: whatsappConfig.value!.api_version
