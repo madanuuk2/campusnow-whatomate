@@ -96,7 +96,7 @@ const initiateSSO = (provider: string) => {
     <div class="w-full max-w-md rounded-2xl border border-white/[0.08] bg-white/[0.02] backdrop-blur light:bg-white light:border-gray-200 light:shadow-xl">
       <div class="p-8 space-y-1 text-center">
         <div class="flex justify-center mb-4">
-          <img src="/CampuNowFullName.png" alt="CampusNow" class="h-14 w-auto max-w-full object-contain" />
+          <img src="/CampusNowFullName.png" alt="CampusNow" class="h-14 w-auto max-w-full object-contain" />
         </div>
         <h2 class="text-2xl font-bold text-white light:text-gray-900">{{ $t('auth.welcomeTitle') }}</h2>
         <p class="text-white/50 light:text-gray-500">
