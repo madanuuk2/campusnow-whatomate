@@ -107,14 +107,41 @@ const aiSettings = ref({
 const isAIEnabled = ref(false)
 
 const aiProviders = [
-  { value: 'openai', label: 'OpenAI', models: ['gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo', 'gpt-3.5-turbo'] },
-  { value: 'anthropic', label: 'Anthropic', models: ['claude-3-5-sonnet-latest', 'claude-3-5-haiku-latest', 'claude-3-opus-latest'] },
-  { value: 'google', label: 'Google AI', models: ['gemini-2.0-flash', 'gemini-2.0-flash-lite', 'gemini-1.5-flash', 'gemini-1.5-flash-8b'] }
+  { value: 'openai', label: 'OpenAI', models: [
+    { value: 'gpt-4o', label: 'gpt-4o' },
+    { value: 'gpt-4o-mini', label: 'gpt-4o-mini' },
+    { value: 'gpt-4-turbo', label: 'gpt-4-turbo' },
+    { value: 'gpt-3.5-turbo', label: 'gpt-3.5-turbo' }
+  ] },
+  { value: 'anthropic', label: 'Anthropic', models: [
+    { value: 'claude-3-5-sonnet-latest', label: 'claude-3-5-sonnet-latest' },
+    { value: 'claude-3-5-haiku-latest', label: 'claude-3-5-haiku-latest' },
+    { value: 'claude-3-opus-latest', label: 'claude-3-opus-latest' }
+  ] },
+  { value: 'google', label: 'Google AI', models: [
+    { value: 'gemini-2.0-flash', label: 'gemini-2.0-flash' },
+    { value: 'gemini-2.0-flash-lite', label: 'gemini-2.0-flash-lite' },
+    { value: 'gemini-1.5-flash', label: 'gemini-1.5-flash' },
+    { value: 'gemini-1.5-flash-8b', label: 'gemini-1.5-flash-8b' }
+  ] },
+  { value: 'openrouter', label: 'OpenRouter', models: [
+    { value: 'z-ai/glm-5.3-flash', label: 'GLM 5.3 Flash' },
+    { value: 'openai/gpt-6-luna', label: 'GPT-6 Luna' },
+    { value: 'deepseek/deepseek-v4-flash-0731', label: 'DeepSeek V4 Flash' }
+  ] }
 ]
 
 const availableModels = computed(() => {
   const provider = aiProviders.find(p => p.value === aiSettings.value.ai_provider)
   return provider?.models || []
+})
+
+watch(() => aiSettings.value.ai_provider, (provider, previous) => {
+  if (!previous || provider === previous) return
+  const allowed = availableModels.value.map(model => model.value)
+  if (aiSettings.value.ai_model && !allowed.includes(aiSettings.value.ai_model)) {
+    aiSettings.value.ai_model = ''
+  }
 })
 
 watch(isAIEnabled, (newValue) => {
@@ -845,8 +872,8 @@ function removeEscalationUser(userId: string) {
                           <SelectValue :placeholder="$t('chatbotSettings.selectModel') + '...'" />
                         </SelectTrigger>
                         <SelectContent>
-                          <SelectItem v-for="model in availableModels" :key="model" :value="model">
-                            {{ model }}
+                          <SelectItem v-for="model in availableModels" :key="model.value" :value="model.value">
+                            {{ model.label }}
                           </SelectItem>
                         </SelectContent>
                       </Select>
