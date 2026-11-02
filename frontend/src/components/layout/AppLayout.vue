@@ -110,7 +110,7 @@ const handleLogout = async () => {
     <header class="fixed top-0 left-0 right-0 z-50 flex h-12 items-center justify-between border-b border-white/[0.08] light:border-gray-200 bg-[#0a0a0b]/95 light:bg-white/95 backdrop-blur-sm px-3 md:hidden">
       <RouterLink to="/" class="flex items-center gap-2">
         <img src="/CampusNowLogo.png" alt="CampusNow" class="h-7 w-7 rounded-lg object-contain" />
-        <img src="/CampuNowFullName.png" alt="CampusNow" class="h-5 w-auto max-w-32 object-contain" />
+        <img src="/CampusNowFullName.png" alt="CampusNow" class="h-5 w-auto max-w-32 object-contain" />
       </RouterLink>
       <Button
         variant="ghost"
@@ -150,7 +150,7 @@ const handleLogout = async () => {
           <img src="/CampusNowLogo.png" alt="CampusNow" class="h-7 w-7 rounded-lg object-contain" />
           <img
             v-if="!isCollapsed"
-            src="/CampuNowFullName.png"
+            src="/CampusNowFullName.png"
             alt="CampusNow"
             class="h-5 w-auto max-w-32 object-contain"
           />
