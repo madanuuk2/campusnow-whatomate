@@ -33,4 +33,5 @@ TESTING.md
 campusnow-assets/*
 !campusnow-assets/CampuNowFullName.png
 !campusnow-assets/CampusNowLogo.png
+!campusnow-assets/CampusNowFullName.png
 !campusnow-assets/favicon.png
