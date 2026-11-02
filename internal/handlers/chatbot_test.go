@@ -128,6 +128,44 @@ func TestApp_GetChatbotSettings(t *testing.T) {
 // UpdateChatbotSettings
 // =============================================================================
 
+func TestApp_UpdateChatbotSettings_OpenRouterEmptyKeyPreserved(t *testing.T) {
+	t.Parallel()
+
+	app := newTestApp(t)
+	org := testutil.CreateTestOrganization(t, app.DB)
+	user := testutil.CreateTestUser(t, app.DB, org.ID)
+
+	req := testutil.NewJSONRequest(t, map[string]any{
+		"ai_enabled":  true,
+		"ai_provider": "openrouter",
+		"ai_api_key":  "org-openrouter-key",
+		"ai_model":    "z-ai/glm-5.3-flash",
+	})
+	testutil.SetAuthContext(req, org.ID, user.ID)
+	require.NoError(t, app.UpdateChatbotSettings(req))
+	assert.Equal(t, fasthttp.StatusOK, testutil.GetResponseStatusCode(req))
+
+	emptyKey := testutil.NewJSONRequest(t, map[string]any{
+		"ai_provider": "openrouter",
+		"ai_api_key":  "",
+		"ai_model":    "openai/gpt-6-luna",
+	})
+	testutil.SetAuthContext(emptyKey, org.ID, user.ID)
+	require.NoError(t, app.UpdateChatbotSettings(emptyKey))
+
+	var stored models.ChatbotSettings
+	require.NoError(t, app.DB.Where("organization_id = ?", org.ID).First(&stored).Error)
+	assert.Equal(t, models.AIProviderOpenRouter, stored.AI.Provider)
+	assert.Equal(t, "openai/gpt-6-luna", stored.AI.Model)
+	assert.Equal(t, "org-openrouter-key", stored.AI.APIKey)
+
+	getReq := testutil.NewGETRequest(t)
+	testutil.SetAuthContext(getReq, org.ID, user.ID)
+	require.NoError(t, app.GetChatbotSettings(getReq))
+	assert.NotContains(t, string(testutil.GetResponseBody(getReq)), "org-openrouter-key")
+	assert.NotContains(t, string(testutil.GetResponseBody(getReq)), "OPENROUTER_API_KEY")
+}
+
 func TestApp_UpdateChatbotSettings(t *testing.T) {
 	t.Parallel()
 

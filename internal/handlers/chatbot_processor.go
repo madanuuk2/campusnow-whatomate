@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"os"
 	"regexp"
 	"strings"
 	"time"
@@ -363,8 +364,9 @@ func (a *App) processIncomingMessageFull(phoneNumberID string, msg IncomingTextM
 		return
 	}
 
-	// If no keyword matched, try AI response if enabled
-	if settings.AI.Enabled && settings.AI.Provider != "" && settings.AI.APIKey != "" {
+	// If no keyword matched, try AI response if enabled.
+	// OpenRouter may use the platform key when the organization key is empty.
+	if a.aiCredentialsReady(settings) {
 		a.Log.Info("Attempting AI response", "provider", settings.AI.Provider, "model", settings.AI.Model)
 		aiResponse, err := a.generateAIResponse(settings, session, messageText)
 		if err != nil {
@@ -381,7 +383,7 @@ func (a *App) processIncomingMessageFull(phoneNumberID string, msg IncomingTextM
 			a.Log.Warn("AI returned empty response")
 		}
 	} else {
-		a.Log.Info("AI not configured", "ai_enabled", settings.AI.Enabled, "has_provider", settings.AI.Provider != "", "has_api_key", settings.AI.APIKey != "")
+		a.Log.Info("AI not configured", "ai_enabled", settings.AI.Enabled, "has_provider", settings.AI.Provider != "", "has_api_key", a.hasAICredential(settings))
 	}
 
 	// If no AI response or AI not enabled, send fallback message (for existing sessions)
@@ -824,6 +826,42 @@ type ApiResponse struct {
 //
 // Mirrors fetchAPIContext in seeding implicit variables (phone_number) so flow-step
 // API templates can interpolate {{phone_number}} just like AI-context API templates.
+// openRouterChatCompletionsURL is the OpenRouter chat endpoint.
+// Tests replace it with an httptest server URL.
+var openRouterChatCompletionsURL = "https://openrouter.ai/api/v1/chat/completions"
+
+const openRouterAPIKeyEnv = "OPENROUTER_API_KEY"
+
+// aiCredentialsReady reports whether an AI call can be attempted.
+// OpenAI, Anthropic, and Google require the organization key.
+// OpenRouter uses that key when set, otherwise OPENROUTER_API_KEY.
+func (a *App) aiCredentialsReady(settings *models.ChatbotSettings) bool {
+	if settings == nil || !settings.AI.Enabled || settings.AI.Provider == "" {
+		return false
+	}
+	return a.hasAICredential(settings)
+}
+
+func (a *App) hasAICredential(settings *models.ChatbotSettings) bool {
+	if settings == nil {
+		return false
+	}
+	if settings.AI.APIKey != "" {
+		return true
+	}
+	return settings.AI.Provider == models.AIProviderOpenRouter && os.Getenv(openRouterAPIKeyEnv) != ""
+}
+
+func resolveOpenRouterAPIKey(settings *models.ChatbotSettings) (string, error) {
+	if settings != nil && settings.AI.APIKey != "" {
+		return settings.AI.APIKey, nil
+	}
+	if key := os.Getenv(openRouterAPIKeyEnv); key != "" {
+		return key, nil
+	}
+	return "", fmt.Errorf("OpenRouter API key is not configured: set the organization API key or %s", openRouterAPIKeyEnv)
+}
+
 func (a *App) generateAIResponse(settings *models.ChatbotSettings, session *models.ChatbotSession, userMessage string) (string, error) {
 	// Build context from AIContext entries
 	contextData := a.buildAIContext(settings.OrganizationID, session, userMessage)
@@ -835,6 +873,8 @@ func (a *App) generateAIResponse(settings *models.ChatbotSettings, session *mode
 		return a.generateAnthropicResponse(settings, session, userMessage, contextData)
 	case models.AIProviderGoogle:
 		return a.generateGoogleResponse(settings, session, userMessage, contextData)
+	case models.AIProviderOpenRouter:
+		return a.generateOpenRouterResponse(settings, session, userMessage, contextData)
 	default:
 		return "", fmt.Errorf("unsupported AI provider: %s", settings.AI.Provider)
 	}
@@ -1036,6 +1076,110 @@ func (a *App) generateOpenAIResponse(settings *models.ChatbotSettings, session *
 	}
 
 	return "", fmt.Errorf("no response from OpenAI")
+}
+
+// generateOpenRouterResponse generates a response using the OpenRouter
+// OpenAI-compatible chat completions API.
+func (a *App) generateOpenRouterResponse(settings *models.ChatbotSettings, session *models.ChatbotSession, userMessage string, contextData string) (string, error) {
+	apiKey, err := resolveOpenRouterAPIKey(settings)
+	if err != nil {
+		return "", err
+	}
+
+	messages := []map[string]string{}
+
+	systemPrompt := settings.AI.SystemPrompt
+	if contextData != "" {
+		if systemPrompt != "" {
+			systemPrompt = systemPrompt + "\n\n" + contextData
+		} else {
+			systemPrompt = contextData
+		}
+	}
+	if systemPrompt != "" {
+		messages = append(messages, map[string]string{
+			"role":    "system",
+			"content": systemPrompt,
+		})
+	}
+
+	if settings.AI.IncludeHistory && session != nil {
+		history := a.getSessionHistory(session.ID, settings.AI.HistoryLimit)
+		for _, msg := range history {
+			role := "user"
+			if msg.Direction == models.DirectionOutgoing {
+				role = "assistant"
+			}
+			messages = append(messages, map[string]string{
+				"role":    role,
+				"content": msg.Message,
+			})
+		}
+	}
+
+	messages = append(messages, map[string]string{
+		"role":    "user",
+		"content": userMessage,
+	})
+
+	payload := map[string]any{
+		"model":      settings.AI.Model,
+		"messages":   messages,
+		"max_tokens": settings.AI.MaxTokens,
+	}
+	if settings.AI.Temperature > 0 {
+		payload["temperature"] = settings.AI.Temperature
+	}
+
+	jsonPayload, err := json.Marshal(payload)
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal payload: %w", err)
+	}
+
+	req, err := http.NewRequest(http.MethodPost, openRouterChatCompletionsURL, bytes.NewBuffer(jsonPayload))
+	if err != nil {
+		return "", fmt.Errorf("failed to create request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+apiKey)
+
+	resp, err := a.HTTPClient.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("request failed: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("failed to read response: %w", err)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		var errResp struct {
+			Error struct {
+				Message string `json:"message"`
+			} `json:"error"`
+		}
+		if json.Unmarshal(body, &errResp) != nil || errResp.Error.Message == "" {
+			return "", fmt.Errorf("OpenRouter API error: status %d", resp.StatusCode)
+		}
+		return "", fmt.Errorf("OpenRouter API error: %s", errResp.Error.Message)
+	}
+
+	var result struct {
+		Choices []struct {
+			Message struct {
+				Content string `json:"content"`
+			} `json:"message"`
+		} `json:"choices"`
+	}
+	if err := json.Unmarshal(body, &result); err != nil {
+		return "", fmt.Errorf("failed to parse response: %w", err)
+	}
+	if len(result.Choices) > 0 {
+		return strings.TrimSpace(result.Choices[0].Message.Content), nil
+	}
+	return "", fmt.Errorf("no response from OpenRouter")
 }
 
 // generateAnthropicResponse generates a response using Anthropic API

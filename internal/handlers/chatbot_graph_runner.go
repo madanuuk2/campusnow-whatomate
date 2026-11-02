@@ -656,7 +656,7 @@ func (a *App) execChatAIResponse(node *ChatNode, ctx *chatNodeCtx) (nodeOutcome,
 			"node", node.ID, "session", ctx.session.ID, "error", err)
 		return nodeOutcome{outcome: "default"}, nil
 	}
-	if !settings.AI.Enabled || settings.AI.Provider == "" || settings.AI.APIKey == "" {
+	if !a.aiCredentialsReady(settings) {
 		a.Log.Warn("ai_response node hit but AI not configured",
 			"node", node.ID, "session", ctx.session.ID,
 			"ai_enabled", settings.AI.Enabled, "has_provider", settings.AI.Provider != "")
