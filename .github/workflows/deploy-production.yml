@@ -30,10 +30,12 @@ jobs:
           PRODUCTION_HOST: ${{ secrets.PRODUCTION_HOST }}
           PRODUCTION_USER: ${{ secrets.PRODUCTION_USER }}
           PRODUCTION_SSH_KNOWN_HOSTS: ${{ secrets.PRODUCTION_SSH_KNOWN_HOSTS }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
           IMAGE_REF: ghcr.io/madanuuk2/campusnow-whatomate:${{ github.event.workflow_run.head_sha }}
         shell: bash
         run: |
           set -Eeuo pipefail
+          set +x
 
           install -d -m 700 "$HOME/.ssh"
           printf '%s\n' "$PRODUCTION_SSH_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
@@ -43,13 +45,11 @@ jobs:
           trap 'ssh-agent -k >/dev/null' EXIT
           ssh-add - <<< "${{ secrets.PRODUCTION_SSH_PRIVATE_KEY }}" >/dev/null
 
-          ssh \
-            -o BatchMode=yes \
-            -o StrictHostKeyChecking=yes \
-            -o UserKnownHostsFile="$HOME/.ssh/known_hosts" \
-            "$PRODUCTION_USER@$PRODUCTION_HOST" \
-            "IMAGE_REF=$IMAGE_REF bash -s" <<'REMOTE'
+          {
+            printf '%s\n' "$OPENROUTER_API_KEY"
+            cat <<'REMOTE'
           set -Eeuo pipefail
+          set +x
 
           deployment_dir=/opt/campusnow-whatomate
           compose_file=docker/docker-compose.prod.yml
@@ -61,11 +61,39 @@ jobs:
           test -d uploads
           grep -q '^WHATOMATE_IMAGE=' .env
 
+          env_owner="$(stat -c '%u:%g' .env)"
           temporary_env="$(mktemp .env.XXXXXX)"
           trap 'rm -f "$temporary_env"' EXIT
-          sed "s|^WHATOMATE_IMAGE=.*$|WHATOMATE_IMAGE=$IMAGE_REF|" .env > "$temporary_env"
-          mv "$temporary_env" .env
+          saw_image=0
+          saw_key=0
+          while IFS= read -r line || [ -n "$line" ]; do
+            case "$line" in
+              WHATOMATE_IMAGE=*)
+                printf '%s\n' "WHATOMATE_IMAGE=${IMAGE_REF}"
+                saw_image=1
+                ;;
+              OPENROUTER_API_KEY=*)
+                printf '%s\n' "OPENROUTER_API_KEY=${openrouter_key}"
+                saw_key=1
+                ;;
+              *)
+                printf '%s\n' "$line"
+                ;;
+            esac
+          done < .env > "$temporary_env"
+          if [ "$saw_image" -ne 1 ]; then
+            echo "WHATOMATE_IMAGE entry is missing; refusing to update .env"
+            exit 1
+          fi
+          if [ "$saw_key" -ne 1 ]; then
+            printf '%s\n' "OPENROUTER_API_KEY=${openrouter_key}" >> "$temporary_env"
+          fi
+          unset openrouter_key
+          chmod 600 "$temporary_env"
+          chown "$env_owner" "$temporary_env"
+          mv -f "$temporary_env" .env
           trap - EXIT
+          chmod 600 .env
 
           docker compose --env-file .env -f "$compose_file" pull
           docker compose --env-file .env -f "$compose_file" up -d
@@ -82,3 +110,9 @@ jobs:
           docker compose --env-file .env -f "$compose_file" logs --tail=100 app || true
           exit 1
           REMOTE
+          } | ssh \
+            -o BatchMode=yes \
+            -o StrictHostKeyChecking=yes \
+            -o UserKnownHostsFile="$HOME/.ssh/known_hosts" \
+            "$PRODUCTION_USER@$PRODUCTION_HOST" \
+            "IMAGE_REF=$IMAGE_REF bash -c 'set -Eeuo pipefail; set +x; IFS= read -r openrouter_key || true; if [ -z \"\$openrouter_key\" ]; then echo \"OPENROUTER_API_KEY secret is empty; refusing to update .env\"; exit 1; fi; source /dev/stdin'"
